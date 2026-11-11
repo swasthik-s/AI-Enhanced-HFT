@@ -2,19 +2,31 @@
 
 ## Recommended topology
 
-Deploy `cloud/api` as a persistent HTTPS web service and `cloud/dashboard` as a separate Streamlit service. The Windows VPS runs MT5 plus `mt5/CloudBridge.mq5`.
+Deploy `cloud/api` as an HTTPS web service and `cloud/dashboard` as a separate Streamlit service. The Windows VPS runs MT5 plus `mt5/CloudBridge.mq5`. Supabase PostgreSQL stores telemetry independently of Render.
 
-### API service
+### Supabase database setup
 
-- Build context: repository root
-- Dockerfile: `cloud/api/Dockerfile`
+1. Open the Supabase project and go to **SQL Editor**.
+2. Run the SQL in `cloud/api/supabase_schema.sql`.
+3. Open **Project Settings → API Keys** (or the project's API keys page).
+4. Create/copy a **secret key** for server-side use. Do not use the publishable key for this API's server-side database access.
+5. Keep the secret key private. Add it only as a Render environment variable; never commit it or paste it into source code.
+
+### API service (Render)
+
+- Root directory: `cloud/api`
+- Runtime: Python
+- Build command: `pip install -r requirements.txt`
+- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 - Health-check path: `/health`
-- Environment variables:
-  - `CLOUD_API_KEY`: long random secret, at least 20 characters
-  - `CLOUD_DB_PATH`: path on a persistent mounted volume, e.g. `/data/cloud_telemetry.sqlite3`
-  - `PORT`: supplied by the hosting platform
 
-Mount persistent storage at `/data` and set `CLOUD_DB_PATH=/data/cloud_telemetry.sqlite3`. Without persistent storage, SQLite telemetry can be lost when the service is replaced or restarted.
+Environment variables:
+- `CLOUD_API_KEY`: long random bearer secret shared with the dashboard and MT5 EA
+- `SUPABASE_URL`: Supabase project URL
+- `SUPABASE_SECRET_KEY`: Supabase server-side secret key (not the publishable key)
+- `PORT`: supplied by Render
+
+Remove the old `CLOUD_DB_PATH` variable. The API no longer uses SQLite. No Render disk is required for database persistence.
 
 ### Dashboard service
 
@@ -23,9 +35,9 @@ Mount persistent storage at `/data` and set `CLOUD_DB_PATH=/data/cloud_telemetry
 - Install: `pip install -r requirements.txt`
 - Secrets:
   - `CLOUD_API_URL`: API base URL
-  - `CLOUD_API_KEY`: same secret as API service
+  - `CLOUD_API_KEY`: same bearer secret as the API service
 
-Do not expose the API key in a public repository or browser-side JavaScript.
+Do not put the Supabase secret key in Streamlit secrets. The dashboard talks to Supabase only through FastAPI.
 
 ### MT5 VPS
 
@@ -34,12 +46,12 @@ Do not expose the API key in a public repository or browser-side JavaScript.
 3. Compile with MetaEditor.
 4. Add the API origin to the MT5 WebRequest allow-list.
 5. Attach the EA to the instrument chart.
-6. Configure the HTTPS base URL and API key in EA inputs.
+6. Configure the HTTPS base URL and `CLOUD_API_KEY` in EA inputs.
 7. Confirm the dashboard receives heartbeats and account data.
 
 ## Phase 1 acceptance checks
 
-- `GET /health` returns HTTP 200.
+- `GET /health` returns HTTP 200 and reports database connected.
 - Missing or incorrect bearer key is rejected.
 - Correct key can post telemetry.
 - Dashboard shows current account, quote, spread, positions and bars.
