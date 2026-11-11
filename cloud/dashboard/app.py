@@ -10,7 +10,7 @@ st.caption("Phase 1 · Read-only telemetry monitor. Trading controls are intenti
 
 api_url = st.sidebar.text_input("API URL", os.getenv("CLOUD_API_URL", "http://localhost:8000")).rstrip("/")
 api_key = st.sidebar.text_input("API key", os.getenv("CLOUD_API_KEY", ""), type="password")
-refresh = st.sidebar.slider("Refresh interval (seconds)", 2, 30, 5)
+refresh = st.sidebar.slider("Refresh interval (seconds)", 5, 60, 15)
 
 if not api_key:
     st.info("Enter the API key in the sidebar, or configure CLOUD_API_KEY as an environment secret.")
@@ -18,11 +18,18 @@ if not api_key:
 
 headers = {"Authorization": f"Bearer {api_key}"}
 try:
-    response = requests.get(f"{api_url}/v1/latest", headers=headers, timeout=5)
+    # Allow time for a sleeping free-tier API instance to wake up.
+    response = requests.get(f"{api_url}/v1/latest", headers=headers, timeout=(5, 30))
     response.raise_for_status()
     result = response.json()
-except Exception as exc:
+except requests.exceptions.Timeout:
+    st.error("The cloud API did not respond within 30 seconds. Check whether the Render API service is awake and review its logs.")
+    st.stop()
+except requests.exceptions.RequestException as exc:
     st.error(f"API connection failed: {exc}")
+    st.stop()
+except ValueError:
+    st.error("The API returned an invalid JSON response.")
     st.stop()
 
 data = result.get("telemetry")
